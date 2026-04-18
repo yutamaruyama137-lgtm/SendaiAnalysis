@@ -138,6 +138,7 @@ const dynamicState = {
   data: null,         // hourly-detail response
   animation: null,    // setInterval handle
   currentHour: 12,
+  initialized: false, // 初回ロード済みフラグ（日付変更時に時間を保持するため）
 };
 
 document.getElementById('load-dynamic-btn').addEventListener('click', loadDynamicMap);
@@ -181,11 +182,16 @@ async function loadDynamicMap() {
     renderHourlyMinibar(data);
     renderDynamicEventsList(data);
 
-    // ピーク時間にデフォルト設定
+    // 初回はピーク時間、2回目以降は現在の時間を維持
     const peakHour = data.hours.reduce((a, b) => a.total > b.total ? a : b).hour;
-    document.getElementById('dynamic-slider').value = peakHour;
-    dynamicState.currentHour = peakHour;
-    updateDynamicMap(peakHour);
+    const hourToShow = dynamicState.initialized ? dynamicState.currentHour : peakHour;
+    dynamicState.initialized = true;
+
+    // 選択時間がデータ範囲内に収まるよう保証
+    const validHour = (data.hours[hourToShow] !== undefined) ? hourToShow : peakHour;
+    document.getElementById('dynamic-slider').value = validHour;
+    dynamicState.currentHour = validHour;
+    updateDynamicMap(validHour);
 
     document.getElementById('dynamic-placeholder').style.display = 'none';
     document.getElementById('dynamic-map-wrapper').style.display = 'block';
