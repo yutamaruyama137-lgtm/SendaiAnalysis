@@ -692,6 +692,7 @@ app.get('/api/event-ranking', (req, res) => {
       : 1;
     const adjustedScore = Math.round(effectScore * penalty * 10) / 10;
 
+    const sortedDates = [...ev.dates].sort();
     results.push({
       name: ev.name,
       locationName: ev.locationName,
@@ -711,6 +712,8 @@ app.get('/api/event-ranking', (req, res) => {
       avgCoOccurring,
       scoreMethod: useProximity ? 'proximity' : 'citywide',
       nearbySensorCount: nearbySensorIds.length,
+      minDate: sortedDates[0] || null,
+      maxDate: sortedDates[sortedDates.length - 1] || null,
     });
   }
 

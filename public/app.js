@@ -161,6 +161,7 @@ async function loadDynamicMap() {
   const date = document.getElementById('dynamic-date').value;
   if (!date) return alert('日付を選択してください');
   syncSharedDate(date);
+  stopDynamicAnimation();
   showLoading();
   try {
     const data = await fetchJSON('/api/hourly-detail?date=' + date);
@@ -216,8 +217,11 @@ function isEventActive(eventHours, currentHour) {
 }
 
 function initDynamicMarkers(data) {
-  // 既存マーカー削除
-  Object.values(dynamicState.sensorCircles).forEach(c => c.remove());
+  // 既存マーカー削除（アニメーションも停止）
+  Object.values(dynamicState.sensorCircles).forEach(c => {
+    if (c.animation) { clearInterval(c.animation); c.animation = null; }
+    c.marker.remove();
+  });
   dynamicState.sensorCircles = {};
   dynamicState.eventMarkers.forEach(entry => {
     const m = entry.marker || entry;
@@ -1336,20 +1340,36 @@ function initEventFilterButtons() {
 // イベント検索フィルター
 function initEventSearch() {
   const input = document.getElementById('event-search-input');
-  if (!input) return;
-  input.addEventListener('input', () => {
-    const q = input.value.toLowerCase().trim();
+  const dateFrom = document.getElementById('event-date-from');
+  const dateTo = document.getElementById('event-date-to');
+  const clearBtn = document.getElementById('event-date-clear');
+
+  const applyFilters = () => {
+    const q = (input?.value || '').toLowerCase().trim();
+    const from = dateFrom?.value || '';
+    const to = dateTo?.value || '';
     if (!eventRankingAllData) return;
-    const filtered = q
-      ? eventRankingAllData.filter(e =>
-          e.name.toLowerCase().includes(q) ||
-          (e.locationName || '').toLowerCase().includes(q)
-        )
-      : eventRankingAllData;
+    let filtered = eventRankingAllData;
+    if (q) filtered = filtered.filter(e =>
+      e.name.toLowerCase().includes(q) ||
+      (e.locationName || '').toLowerCase().includes(q)
+    );
+    // 開催期間が指定範囲と重なるイベントを絞り込む
+    if (from) filtered = filtered.filter(e => !e.maxDate || e.maxDate >= from);
+    if (to)   filtered = filtered.filter(e => !e.minDate || e.minDate <= to);
     renderEventChart(filtered.slice(0, 15));
     renderEventRankingList(filtered);
     const note = document.getElementById('event-filter-note');
     if (note) note.textContent = `${filtered.length}件表示`;
+  };
+
+  if (input) input.addEventListener('input', applyFilters);
+  if (dateFrom) dateFrom.addEventListener('change', applyFilters);
+  if (dateTo) dateTo.addEventListener('change', applyFilters);
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    if (dateFrom) dateFrom.value = '';
+    if (dateTo) dateTo.value = '';
+    applyFilters();
   });
 }
 

@@ -453,6 +453,13 @@
         <button class="event-filter-btn" data-zone="inner" data-noconf="1">圏内 ＋ 学術系除外</button>
         <span class="event-filter-note" id="event-filter-note"></span>
         <input type="text" id="event-search-input" class="event-search-input" placeholder="🔍 イベント名で絞り込み..." autocomplete="off">
+        <div class="event-date-filter">
+          <label class="event-date-label">開催期間</label>
+          <input type="date" id="event-date-from" class="event-date-input" title="開始日">
+          <span class="event-date-sep">〜</span>
+          <input type="date" id="event-date-to" class="event-date-input" title="終了日">
+          <button id="event-date-clear" class="event-date-clear-btn" title="日付絞り込みをリセット">✕</button>
+        </div>
       </div>
       <div class="chart-container large">
         <canvas id="eventChart"></canvas>
