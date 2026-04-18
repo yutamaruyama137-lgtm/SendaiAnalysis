@@ -40,7 +40,6 @@
     <button class="nav-item" data-tab="dynamic">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 3l-6 3v15l6-3 6 3 6-3V3l-6 3-6-3zM9 3v15M15 6v15"/></svg>
       <span class="nav-label">動的マップ</span>
-      <span class="nav-badge">LIVE</span>
     </button>
     <button class="nav-item" data-tab="hourly">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
@@ -303,18 +302,20 @@
           <p class="ph-hint">イベント開催時間帯のピークや、エリアごとの混雑パターンを分析できます</p>
         </div>
       </div>
-      <div id="hourly-content" style="display:none" class="two-col">
-        <div>
-          <div class="chart-container" style="height:300px">
-            <canvas id="hourlyLineChart"></canvas>
+      <div id="hourly-content" style="display:none">
+        <div class="two-col">
+          <div>
+            <div class="chart-container" style="height:300px">
+              <canvas id="hourlyLineChart"></canvas>
+            </div>
+            <div class="chart-container" style="height:300px">
+              <canvas id="hourlyAreaChart"></canvas>
+            </div>
           </div>
-          <div class="chart-container" style="height:300px">
-            <canvas id="hourlyAreaChart"></canvas>
+          <div>
+            <div class="heatmap-title">エリア × 時間帯ヒートマップ</div>
+            <div id="hourly-heatmap" class="heatmap-container"></div>
           </div>
-        </div>
-        <div>
-          <div class="heatmap-title">エリア × 時間帯ヒートマップ</div>
-          <div id="hourly-heatmap" class="heatmap-container"></div>
         </div>
       </div><!-- /#hourly-content -->
     </section>

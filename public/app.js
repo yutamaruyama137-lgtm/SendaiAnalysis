@@ -842,14 +842,14 @@ async function loadHourlyData() {
   showLoading();
   try {
     const data = await fetchJSON('/api/hourly-detail?date=' + date);
-    renderHourlyCharts(data);
-    renderHourlyHeatmap(data);
-    renderHourlyEventsBanner(data);
-    // プレースホルダー非表示・コンテンツ表示
+    // コンテナを先に表示してからChart.jsを描画（canvas のサイズが確定してから描画）
     const ph = document.getElementById('hourly-placeholder');
     const content = document.getElementById('hourly-content');
     if (ph) ph.style.display = 'none';
-    if (content) content.style.display = 'grid';
+    if (content) content.style.display = 'block';
+    renderHourlyCharts(data);
+    renderHourlyHeatmap(data);
+    renderHourlyEventsBanner(data);
   } catch(e) {
     console.error(e);
     alert('データ取得エラー: ' + e.message);
