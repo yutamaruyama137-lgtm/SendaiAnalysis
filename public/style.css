@@ -192,6 +192,7 @@ body {
 .nav-item.active .nav-icon { color: var(--mori); }
 .nav-label { flex: 1; }
 .nav-badge {
+  display: none !important;
   font-size: 10px;
   background: var(--shu-soft);
   color: var(--shu);

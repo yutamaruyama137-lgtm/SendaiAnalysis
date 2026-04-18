@@ -4,3 +4,5 @@ node_modules/
 tmp_*.json
 ranking_test.json
 .vercel/
+
+.vercel
