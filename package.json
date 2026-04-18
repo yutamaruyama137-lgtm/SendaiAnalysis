@@ -1,0 +1,14 @@
+{
+  "name": "sendai-analysis",
+  "version": "1.0.0",
+  "description": "仙台市人流データ分析ダッシュボード",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "csv-parse": "^5.5.3"
+  }
+}
