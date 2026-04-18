@@ -7,6 +7,7 @@ const app = express();
 const PORT = 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 仙台主要施設 座標マスタ =====
@@ -880,6 +881,176 @@ app.get('/api/stats', (req, res) => {
     eventCount: uniqueEventNames.size,
     peakMonth,
   });
+});
+
+// ===== API: AI分析ベータ =====
+function buildAIContext() {
+  const summary = buildDailySummary();
+  const events = loadEvents();
+  const sensors = loadSensors();
+
+  // 月別・曜日別パターン集計
+  const monthlyFlow = {};
+  const weekdayFlow = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+  for (const [date, d] of Object.entries(summary)) {
+    const m = parseInt(date.substring(5, 7));
+    if (!monthlyFlow[m]) monthlyFlow[m] = [];
+    monthlyFlow[m].push(d.total);
+    const dow = new Date(date + 'T00:00:00').getDay();
+    weekdayFlow[dow].push(d.total);
+  }
+  const monthAvg = {};
+  for (const [m, vals] of Object.entries(monthlyFlow)) {
+    monthAvg[m] = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
+  }
+  const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
+  const weekdayAvg = {};
+  for (const [d, vals] of Object.entries(weekdayFlow)) {
+    if (vals.length > 0)
+      weekdayAvg[DAYS[d]] = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
+  }
+
+  // イベント効果サマリー（上位50件を簡易計算）
+  const allDays = Object.entries(summary);
+  const overallAvg = allDays.reduce((s, [, d]) => s + d.total, 0) / allDays.length;
+  const eventNames = [...new Set(events.map(e => e.name))];
+  const eventSummaries = [];
+  for (const name of eventNames) {
+    const evs = events.filter(e => e.name === name);
+    const dates = new Set();
+    for (const ev of evs) {
+      let d = new Date(ev.startDate);
+      const end = new Date(ev.endDate);
+      while (d <= end) { dates.add(d.toISOString().substring(0, 10)); d.setDate(d.getDate() + 1); }
+    }
+    let total = 0, days = 0;
+    for (const date of dates) {
+      if (summary[date]) { total += summary[date].total; days++; }
+    }
+    if (days === 0) continue;
+    const avg = total / days;
+    eventSummaries.push({
+      name,
+      location: evs[0].locationName || '',
+      summary: evs[0].summary ? evs[0].summary.substring(0, 60) : '',
+      days,
+      avg: Math.round(avg),
+      score: Math.round((avg - overallAvg) / overallAvg * 100),
+    });
+  }
+  eventSummaries.sort((a, b) => b.score - a.score);
+
+  const dates = Object.keys(summary).sort();
+  const sensorLocations = [...new Set(sensors.map(s => s.area))];
+
+  return {
+    dataRange: { start: dates[0], end: dates[dates.length - 1] },
+    overallDailyAvg: Math.round(overallAvg),
+    monthAvg,
+    weekdayAvg,
+    topEvents: eventSummaries.slice(0, 30),
+    allEventNames: eventSummaries.map(e => `${e.name}（${e.location}）`),
+    sensorAreas: sensorLocations,
+  };
+}
+
+app.post('/api/ai-analysis', async (req, res) => {
+  const { type, params } = req.body || {};
+  if (!type || !params) return res.status(400).json({ error: 'type と params が必要です' });
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({
+      error: 'ANTHROPIC_API_KEY が未設定です。Vercel の「Settings > Environment Variables」に ANTHROPIC_API_KEY を追加してください。',
+    });
+  }
+
+  try {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
+    const ctx = buildAIContext();
+
+    const systemPrompt = `あなたは仙台市の人流データ分析専門家です。以下の実データに基づいて分析・回答してください。
+
+【データ期間】${ctx.dataRange.start} 〜 ${ctx.dataRange.end}
+【全期間日平均人流量】${ctx.overallDailyAvg.toLocaleString()} 人（全センサー合計）
+
+【月別日平均人流量】
+${Object.entries(ctx.monthAvg).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([m, v]) => `${m}月: ${v.toLocaleString()}人`).join(' / ')}
+
+【曜日別日平均人流量】
+${Object.entries(ctx.weekdayAvg).map(([d, v]) => `${d}曜: ${v.toLocaleString()}人`).join(' / ')}
+
+【主要イベント実績（効果スコア順）】
+${ctx.topEvents.slice(0, 20).map(e => `・${e.name}（${e.location}）: ${e.days}日間 / 開催中平均${e.avg.toLocaleString()}人 / 効果${e.score > 0 ? '+' : ''}${e.score}%`).join('\n')}
+
+【センサー設置エリア】${ctx.sensorAreas.join('、')}
+
+回答は日本語で、**太字**や - リストを使い読みやすく整形してください。数値は具体的に示してください。`;
+
+    let userMessage = '';
+
+    if (type === 'search') {
+      userMessage = `以下のキーワード・説明でイベントを自然言語検索してください：「${params.query}」
+
+全イベントリスト（${ctx.allEventNames.length}件）から意味的に関連するものを最大5件選び、それぞれ：
+- **イベント名と場所**
+- 人流効果スコアと実績
+- このクエリとの関連理由
+
+を回答してください。該当がなければその旨を教えてください。
+
+全イベント一覧:
+${ctx.allEventNames.join('\n')}`;
+
+    } else if (type === 'predict') {
+      const d = new Date(params.date + 'T00:00:00');
+      const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
+      const dow = DAYS[d.getDay()];
+      const month = d.getMonth() + 1;
+      userMessage = `以下の仮想イベントの集客数を予測してください：
+
+- **イベント名**: ${params.eventName}
+- **カテゴリ**: ${params.category}
+- **開催場所**: ${params.location}
+- **開催日**: ${params.date}（${month}月・${dow}曜日）
+- **開催日数**: ${params.days}日間
+
+次の観点で分析してください：
+1. **予測集客数**（日平均・範囲で）
+2. **予測根拠**（類似イベント実績・${month}月の季節性・${dow}曜日効果）
+3. **集客最大化のアドバイス**（タイミング・プロモーションなど）`;
+
+    } else if (type === 'optimal') {
+      userMessage = `以下の条件でイベントの最適開催日を提案してください：
+
+- **カテゴリ**: ${params.category}
+- **開催場所候補**: ${params.location}
+- **希望時期**: ${params.season}
+- **目標集客数**: ${params.targetFlow || '特になし'}
+- **備考**: ${params.notes || 'なし'}
+
+次の観点で分析してください：
+1. **最適な開催時期 TOP3**（月・曜日の組み合わせ）と理由
+2. **各時期の予測集客効果**
+3. **避けるべき時期**とその理由
+4. **競合イベントへの注意点**`;
+    } else {
+      return res.status(400).json({ error: '不明な type です' });
+    }
+
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1200,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    res.json({ result: message.content[0].text });
+  } catch (e) {
+    console.error('AI analysis error:', e);
+    res.status(500).json({ error: e.message || 'AI分析中にエラーが発生しました' });
+  }
 });
 
 // ===== 起動 =====

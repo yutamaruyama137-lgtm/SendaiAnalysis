@@ -13,7 +13,8 @@ const state = {
   sensorAnalysisMap: null,
   mapMarkers: [],
   sensorAnalysisMarkers: [],
-  sharedDate: '',  // 動的マップ・時間帯分析・エリア別で共有する日付
+  sharedDate: '',
+  aiTabInitialized: false,
 };
 
 // ===== 日付共有 =====
@@ -80,7 +81,7 @@ document.getElementById('event-modal').addEventListener('click', (e) => {
 });
 
 // ===== タブ切替 =====
-const VIEW_TITLES = {overview:'全期間比較', daily:'日別人流', dynamic:'動的マップ', hourly:'時間帯分析', area:'エリア別', ranking:'人流ランキング', event:'イベント効果'};
+const VIEW_TITLES = {overview:'全期間比較', daily:'日別人流', dynamic:'動的マップ', hourly:'時間帯分析', area:'エリア別', ranking:'人流ランキング', event:'イベント効果', ai:'AI分析 β'};
 
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -118,6 +119,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 
     if (btn.dataset.tab === 'area' && !state.map) initAreaMap();
     if (btn.dataset.tab === 'ranking' && document.getElementById('ranking-list').children.length === 0) loadRanking();
+    if (btn.dataset.tab === 'ai' && !state.aiTabInitialized) { state.aiTabInitialized = true; initAITab(); }
     if (btn.dataset.tab === 'event') {
       initEventFilterButtons();
       if (document.getElementById('event-ranking-list').children.length === 0) loadEventRanking('inner', '0');
@@ -1658,6 +1660,129 @@ function renderEventSensorPanel(data) {
 document.getElementById('panel-close-btn').addEventListener('click', () => {
   document.getElementById('event-sensor-panel').style.display = 'none';
 });
+
+// ===== AI分析ベータ =====
+function initAITab() {
+  // サブタブ切り替え
+  document.querySelectorAll('.ai-subtab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ai-subtab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.ai-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('ai-panel-' + btn.dataset.subtab).classList.add('active');
+    });
+  });
+
+  // サンプルチップクリック
+  document.querySelectorAll('.ai-example-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const target = document.getElementById(chip.dataset.target);
+      if (target) { target.value = chip.textContent; target.focus(); }
+    });
+  });
+
+  // 自然言語検索
+  const searchBtn = document.getElementById('ai-search-btn');
+  const searchInput = document.getElementById('ai-search-input');
+  if (searchBtn) {
+    searchBtn.addEventListener('click', () => runAIAnalysis('search'));
+    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runAIAnalysis('search'); });
+  }
+
+  // 集客予測
+  const predictBtn = document.getElementById('ai-predict-btn');
+  if (predictBtn) predictBtn.addEventListener('click', () => runAIAnalysis('predict'));
+
+  // 最適日提案
+  const optimalBtn = document.getElementById('ai-optimal-btn');
+  if (optimalBtn) optimalBtn.addEventListener('click', () => runAIAnalysis('optimal'));
+}
+
+async function runAIAnalysis(type) {
+  let params = {};
+  let resultId = '';
+
+  if (type === 'search') {
+    const q = (document.getElementById('ai-search-input')?.value || '').trim();
+    if (!q) return showAIError('search', 'キーワードを入力してください');
+    params = { query: q };
+    resultId = 'ai-result-search';
+
+  } else if (type === 'predict') {
+    const name = (document.getElementById('ai-predict-name')?.value || '').trim();
+    const date = document.getElementById('ai-predict-date')?.value || '';
+    const location = (document.getElementById('ai-predict-location')?.value || '').trim();
+    if (!name) return showAIError('predict', 'イベント名を入力してください');
+    if (!date) return showAIError('predict', '開催日を選択してください');
+    if (!location) return showAIError('predict', '開催場所を入力してください');
+    params = {
+      eventName: name,
+      category: document.getElementById('ai-predict-category')?.value || '',
+      location,
+      date,
+      days: document.getElementById('ai-predict-days')?.value || '1',
+    };
+    resultId = 'ai-result-predict';
+
+  } else if (type === 'optimal') {
+    const location = (document.getElementById('ai-optimal-location')?.value || '').trim();
+    if (!location) return showAIError('optimal', '開催場所候補を入力してください');
+    params = {
+      category: document.getElementById('ai-optimal-category')?.value || '',
+      location,
+      season: document.getElementById('ai-optimal-season')?.value || '',
+      targetFlow: (document.getElementById('ai-optimal-target')?.value || '').trim(),
+      notes: (document.getElementById('ai-optimal-notes')?.value || '').trim(),
+    };
+    resultId = 'ai-result-optimal';
+  }
+
+  const resultEl = document.getElementById(resultId);
+  if (!resultEl) return;
+
+  // ローディング表示
+  resultEl.innerHTML = `
+    <div class="ai-loading">
+      <div class="ai-spinner"></div>
+      <span>Claude が分析中です... しばらくお待ちください</span>
+    </div>`;
+
+  try {
+    const res = await fetch('/api/ai-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, params }),
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      resultEl.innerHTML = `<div class="ai-error">⚠️ ${data.error || 'エラーが発生しました'}</div>`;
+      return;
+    }
+
+    resultEl.innerHTML = `<div class="ai-result-content">${renderAIMarkdown(data.result)}</div>`;
+  } catch (e) {
+    console.error('AI analysis fetch error:', e);
+    resultEl.innerHTML = `<div class="ai-error">⚠️ 通信エラーが発生しました: ${e.message}</div>`;
+  }
+}
+
+function showAIError(type, msg) {
+  const el = document.getElementById('ai-result-' + type);
+  if (el) el.innerHTML = `<div class="ai-error">⚠️ ${msg}</div>`;
+}
+
+function renderAIMarkdown(text) {
+  // シンプルなマークダウン変換
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^#{1,3} (.+)$/gm, '<div class="ai-heading">$1</div>')
+    .replace(/^(\d+)\. (.+)$/gm, '<div class="ai-list-item ai-ordered"><span class="ai-num">$1</span>$2</div>')
+    .replace(/^- (.+)$/gm, '<div class="ai-list-item"><span class="ai-bullet">•</span>$1</div>')
+    .replace(/\n\n/g, '<div class="ai-para-gap"></div>')
+    .replace(/\n/g, '<br>');
+}
 
 // ===== 初期化 =====
 async function init() {
